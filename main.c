@@ -13,7 +13,7 @@
 #include <errno.h>
 
 #define CODE_START 0x0000
-#define MEMORY_SIZE 0x10000
+#define MEMORY_SIZE 0x20000
 
 void cleanup(int kvm_fd, int vm_fd, int vcpu_fd, char *mem) {
     if (mem) {
@@ -27,6 +27,15 @@ void cleanup(int kvm_fd, int vm_fd, int vcpu_fd, char *mem) {
     }
     if (kvm_fd >= 0) {
         close(kvm_fd);
+    }
+}
+
+void handle_mmio(struct kvm_run *run) {
+    if (run->mmio.is_write) {
+        printf("MMIO Write at address %llx\n", run->mmio.phys_addr);
+    } else {
+        printf("MMIO Read at address %llx\n", run->mmio.phys_addr);
+        *(uint64_t *)(run->mmio.data) = 0x12345678;
     }
 }
 
@@ -61,22 +70,35 @@ int main() {
         return 1;
     }
 
-    struct kvm_userspace_memory_region region = {
+    struct kvm_userspace_memory_region region0 = {
         .slot = 0,
         .guest_phys_addr = 0,
-        .memory_size = MEMORY_SIZE,
+        .memory_size = 0x10000,
         .userspace_addr = (uintptr_t)mem
     };
 
-    if (ioctl(vm_fd, KVM_SET_USER_MEMORY_REGION, &region) == -1) {
-        perror("KVM_SET_USER_MEMORY_REGION");
+    if (ioctl(vm_fd, KVM_SET_USER_MEMORY_REGION, &region0) == -1) {
+        perror("KVM_SET_USER_MEMORY_REGION for region0");
         cleanup(kvm_fd, vm_fd, -1, mem);
         return 1;
     }
 
-    int bin_fd = open("guest", O_RDONLY);
+    struct kvm_userspace_memory_region region1 = {
+        .slot = 1,
+        .guest_phys_addr = 0x10000,
+        .memory_size = 0x10000,
+        .userspace_addr = (uintptr_t)mem + 0x10000
+    };
+
+    if (ioctl(vm_fd, KVM_SET_USER_MEMORY_REGION, &region1) == -1) {
+        perror("KVM_SET_USER_MEMORY_REGION for region1");
+        cleanup(kvm_fd, vm_fd, -1, mem);
+        return 1;
+    }
+
+    int bin_fd = open("guest.bin", O_RDONLY);
     if (bin_fd == -1) {
-        perror("open guest");
+        perror("open guest.bin");
         cleanup(kvm_fd, vm_fd, -1, mem);
         return 1;
     }
@@ -151,9 +173,19 @@ int main() {
         case KVM_EXIT_IO:
             printf("IO port: %x, data: %x\n", run->io.port, *(int *)((char *)run + run->io.data_offset));
             break;
+        case KVM_EXIT_HLT:
+            printf("KVM_EXIT_HLT\n");
+            break;
+        case KVM_EXIT_MMIO:
+            handle_mmio(run);
+            break;
         case KVM_EXIT_SHUTDOWN:
+            printf("KVM_EXIT_SHUTDOWN\n");
             cleanup(kvm_fd, vm_fd, vcpu_fd, mem);
             return 0;
+        default:
+            printf("Unhandled exit reason: %d\n", run->exit_reason);
+            break;
         }
     }
 
