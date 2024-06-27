@@ -132,6 +132,7 @@ if (ioctl(vcpu_fd, KVM_SET_REGS, &(regs)) < 0) {
 ```
 
 
+
 运行虚拟机:
 
 ``` c
@@ -149,4 +150,25 @@ for (;;) {
         return 0;
     }
 }
+```
+
+
+
+
+
+## 运行步骤
+as -32 guest.S -o guest.o
+ld -m elf_i386 --oformat binary -N -e _start -Ttext 0x10000 -o guest guest.o
+实际上我发现直接用nasm执行： nasm -f bin guest.asm -o guest 即可
+
+然后执行gcc main.c -o main 
+
+sudo ./main
+```
+~/mylab/kvm-demo-sample/kvm-demo$ sudo ./main 
+...............kvm demo begin................
+KVM version: 12
+test
+IO port: 3f8, data: 4
+test
 ```
